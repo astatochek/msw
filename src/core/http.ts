@@ -10,23 +10,37 @@ import {
 } from './handlers/HttpHandler'
 import type { Path, PathParams } from './utils/matching/matchRequestUrl'
 
-export type HttpRequestHandler = <
-  Params extends PathParams<keyof Params> = PathParams,
+type ExtractRestParams<T extends Path> = {
+  [Key in Split<
+    T extends string ? T : ''
+  >[number] as Key extends `:${infer Param}` ? Param : never]: string | string[]
+} & {}
+type Split<T extends string> = SplitFromParts<[T]>
+type SplitFromParts<T extends string[]> = T extends [...infer Start, infer End]
+  ? End extends `${infer PathPart}/${infer Rest}`
+    ? [...Start, PathPart, ...SplitFromParts<[Rest]>]
+    : [End]
+  : []
+
+export type HttpRequestHandler<RequestPath extends Path> = <
   RequestBodyType extends DefaultBodyType = DefaultBodyType,
   // Response body type MUST be undefined by default.
   // This is how we can distinguish between a handler that
   // returns plain "Response" and the one returning "HttpResponse"
   // to enforce a stricter response body type.
   ResponseBodyType extends DefaultBodyType = undefined,
-  RequestPath extends Path = Path,
 >(
   path: RequestPath,
-  resolver: HttpResponseResolver<Params, RequestBodyType, ResponseBodyType>,
+  resolver: HttpResponseResolver<
+    ExtractRestParams<RequestPath>,
+    RequestBodyType,
+    ResponseBodyType
+  >,
   options?: RequestHandlerOptions,
 ) => HttpHandler
 
 export type HttpResponseResolver<
-  Params extends PathParams<keyof Params> = PathParams,
+  Params extends PathParams,
   RequestBodyType extends DefaultBodyType = DefaultBodyType,
   ResponseBodyType extends DefaultBodyType = DefaultBodyType,
 > = ResponseResolver<
@@ -37,10 +51,15 @@ export type HttpResponseResolver<
 
 function createHttpHandler<Method extends HttpMethods | RegExp>(
   method: Method,
-): HttpRequestHandler {
-  return (path, resolver, options = {}) => {
+) {
+  function handler<RequestPath extends Path>(
+    ...args: Parameters<HttpRequestHandler<RequestPath>>
+  ): ReturnType<HttpRequestHandler<RequestPath>> {
+    const [path, resolver, options = {}] = args
     return new HttpHandler(method, path, resolver, options)
   }
+
+  return handler
 }
 
 /**
